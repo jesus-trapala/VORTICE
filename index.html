@@ -1269,9 +1269,15 @@ class Enemy{
   constructor(type,x,y,waveScale){
     const d=ETYPES[type];
     this.type=type; this.x=x; this.y=y; this.isBoss=!!d.boss;
-    this.r=d.r; this.hpMax=this.hp=Math.ceil(d.hp*(d.boss?waveScale:1));
+    this.r=d.r; this.hpMax=this.hp=Math.ceil(d.hp*(d.boss?waveScale*(1+Game.upOrder.length*.06):1));
+    // Blindados: desde la oleada 8, cada vez mas enemigos aguantan disparos extra
+    const w=Game.wave||0;
+    if(!d.boss && type!=='shard' && w>=8 && grnd()<Math.min(.65,(w-7)*.07)){
+      this.elite=true;
+      this.hpMax=this.hp=this.hp+1+(w>=16?1:0)+(w>=24?1:0);
+    }
     this.speed=d.speed*(1+ (waveScale-1)*.10)*(Game.diff?Game.diff.speedMul:1);
-    this.color=d.color; this.sides=d.sides; this.score=d.score;
+    this.color=d.color; this.sides=d.sides; this.score=Math.round(d.score*(this.elite?1.5:1));
     this.rot=grnd(TAU); this.rotSpd=d.rotSpd*grnd(1.3,.7)*(grnd()<.5?-1:1);
     this.vx=0; this.vy=0; this.flash=0; this.cool=grnd(2.4,.9);
     this.birth=.55; this.wob=grnd(TAU);
@@ -1443,6 +1449,8 @@ class Enemy{
     }
     const col = this.flash>0 ? '#ffffff' : this.color;
     drawPoly(ctx,this.x,this.y,this.r,this.sides,this.rot,col,'rgba(6,10,24,.72)',this.type==='boss'?3.8:2.7);
+    // blindado: segundo contorno blanco
+    if(this.elite) drawPoly(ctx,this.x,this.y,this.r+5,this.sides,this.rot,hexA('#ffffff',.55),null,1.4);
     if(this.type==='boss'){
       drawPoly(ctx,this.x,this.y,this.r*.58,3,-this.rot*1.7,col,null,2.4);
     } else if(this.type==='twin'||this.type==='twinHalf'){
@@ -1545,9 +1553,9 @@ const EVENTS = {
    ab: abreviatura del icono del HUD.  max: tope de acumulaciones.
    req(): condicion para que la carta pueda salir. */
 const UPGRADES = [
-  {id:'cadencia', ab:'CAD', name:'Gatillo fácil',  color:PAL.amber,  max:5, desc:'+15% de cadencia de disparo.'},
+  {id:'cadencia', ab:'CAD', name:'Gatillo fácil',  color:PAL.amber,  max:4, desc:'+15% de cadencia de disparo.'},
   {id:'motor',    ab:'VEL', name:'Motor afinado',      color:PAL.cyan,   max:4, desc:'+10% de velocidad y aceleración.'},
-  {id:'rebote',   ab:'REB', name:'Rebote',             color:PAL.lime,   max:2, desc:'Tus balas rebotan en los bordes (+1 rebote).'},
+  {id:'rebote',   ab:'REB', name:'Rebote',             color:PAL.lime,   max:1, desc:'Tus balas rebotan una vez en los bordes.'},
   {id:'perfora',  ab:'PER', name:'Perforante',         color:'#ff8f5a',  max:2, desc:'Tus balas atraviesan +1 enemigo.'},
   {id:'vida',     ab:'VID', name:'Casco reforzado',    color:'#5fd8ff',  max:3, desc:'+1 vida máxima (y la recuperas).'},
   {id:'iman',     ab:'IMN', name:'Imán',          color:PAL.violet, max:3, desc:'Atraes las mejoras desde 40% más lejos.'},
@@ -1556,7 +1564,7 @@ const UPGRADES = [
      desc:()=> (Game.player.ship.dash||Game.upN('impulso')) ? 'El impulso se recarga 30% más rápido.' : 'Impulso invulnerable para tu nave (Mayús / B / doble toque).'},
   {id:'estela',   ab:'EST', name:'Estela ardiente',    color:PAL.magenta,max:2, desc:'Tu impulso deja una estela que daña enemigos.',
      req:()=> Game.player.ship.dash || Game.upN('impulso')>0},
-  {id:'lateral',  ab:'LAT', name:'Cañón lateral', color:PAL.lime, max:2, desc:'Dispara balas extra hacia los lados.'},
+  {id:'lateral',  ab:'LAT', name:'Cañón lateral', color:PAL.lime, max:1, desc:'Dispara dos balas extra hacia los lados.'},
   {id:'cazajefes',ab:'JEF', name:'Cazajefes',          color:'#ff2d78',  max:3, desc:'+25% de daño contra jefes.'},
   {id:'duracion', ab:'DUR', name:'Baterías',      color:PAL.amber,  max:2, desc:'Los power-ups duran 30% más.'},
   {id:'veloces',  ab:'BAL', name:'Balas veloces',      color:'#fff7d6',  max:2, desc:'Balas 20% más rápidas y de mayor alcance.'},
@@ -1934,7 +1942,7 @@ const Game = {
     }
     show('cardScreen',false);
     this.state='playing';
-    this.waveBreak=1.0;
+    this.waveBreak=.45;   // la siguiente oleada arranca casi de inmediato
     Floaters.add(p.x,p.y-46,u.name.toUpperCase(),u.color,20);
     Particles.burst(p.x,p.y,Quality.pcount(30),u.color,360,.6);
     Grid.inst.impulse(p.x,p.y,200,220);
@@ -1961,7 +1969,8 @@ const Game = {
     Audio_.waveUp();
     Audio_.setIntensity(Math.min(1,(this.wave-1)/13));
     Floaters.add(W/2,H*.36,'OLEADA '+this.wave,PAL.cyan,Math.min(46,26+this.wave));
-    const w=this.wave, cm=this.diff.countMul, q=[];
+    // mas mejoras = oleadas un poco mas pobladas
+    const w=this.wave, cm=this.diff.countMul*(1+this.upOrder.length*.03), q=[];
     const wr=RNG.sub('oleada'+w);   // composicion y eventos: iguales para todos en el reto
     // el Vortice aparece desde la oleada 4 (posicion y momento tambien con semilla)
     this.vortexRng=RNG.sub('vortice'+w);
@@ -1970,6 +1979,7 @@ const Game = {
     const add=(t,n)=>{ n=Math.round(n*cm); for(let i=0;i<n;i++) q.push(t); };
     // ---- eventos de oleada: desde la 6, ~20%, nunca en oleada de jefe ----
     const bossWave = w % this.diff.bossEvery===0;
+    this.bossWaveNow = bossWave;
     this.event=null; this.eventT=0;
     if(w>=6 && !bossWave && wr()<.2){
       this.event=['apagon','lluvia','oro'][Math.floor(wr()*3)];
@@ -2545,11 +2555,14 @@ const Game = {
       p.update(dt);
       if(this.spawnQueue.length===0 && this.enemies.length===0){
         this.waveBreak-=dt;
-        // oleada superada: pausa y cartas de mejora (tras un respiro corto)
-        if(this.wave>0 && this.cardsFor!==this.wave && this.waveBreak<=1.2){
-          this.eBullets.length=0; this.bullets.length=0;
-          this.openCards();
-          return;
+        // oleada superada: cartas solo cada 2 oleadas y siempre tras un jefe
+        if(this.wave>0 && this.cardsFor!==this.wave && this.waveBreak<=1.65){
+          if(this.wave%2===0 || this.bossWaveNow){
+            this.eBullets.length=0; this.bullets.length=0;
+            this.openCards();
+            return;
+          }
+          this.cardsFor=this.wave;   // oleada sin carta: el juego sigue de corrido
         }
         if(this.waveBreak<=0){ this.nextWave(); this.waveBreak=2.0; }
       } else if(this.spawnQueue.length){
